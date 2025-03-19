@@ -110,9 +110,15 @@ class SGD:
         for param in self.parameters:
             param.data -= self.lr * param.grad
 
-if __name__ == "__main__":
-    np.random.seed(42)
+def test_nn_correctness():
+    import torch
+    import torch.nn as nn
+    import torch.optim as optim
 
+    # np.random.seed(42)
+    # torch.manual_seed(42)
+
+    # Custom numpy implementation
     model = Model()
     model.add(Linear(2, 4))
     model.add(Sigmoid())
@@ -128,21 +134,202 @@ if __name__ == "__main__":
         [0.0, 0.0, 1.0]
     ]))
     
+    # PyTorch implementation with same weights
+    class PyTorchModel(nn.Module):
+        def __init__(self, numpy_model):
+            super().__init__()
+            # Copy weights from numpy model
+            self.layer1 = nn.Linear(2, 4)
+            with torch.no_grad():
+                self.layer1.weight = nn.Parameter(torch.tensor(numpy_model.modules[0].weight.data.T, dtype=torch.float32))
+                self.layer1.bias = nn.Parameter(torch.tensor(numpy_model.modules[0].bias.data, dtype=torch.float32))
+            
+            self.sigmoid = nn.Sigmoid()
+            
+            self.layer2 = nn.Linear(4, 3)
+            with torch.no_grad():
+                self.layer2.weight = nn.Parameter(torch.tensor(numpy_model.modules[2].weight.data.T, dtype=torch.float32))
+                self.layer2.bias = nn.Parameter(torch.tensor(numpy_model.modules[2].bias.data, dtype=torch.float32))
+        
+        def forward(self, x):
+            x = self.layer1(x)
+            x = self.sigmoid(x)
+            x = self.layer2(x)
+            return x
+    
+    # Create PyTorch model with same weights
+    torch_model = PyTorchModel(model)
+    torch_optimizer = optim.SGD(torch_model.parameters(), lr=1)
+    torch_criterion = nn.CrossEntropyLoss()
+    
+    # Convert data to PyTorch tensors
+    torch_x = torch.tensor(x.data, dtype=torch.float32)
+    torch_target = torch.tensor(np.argmax(target.data, axis=1), dtype=torch.long)
+    
+    print("Starting training comparison:")
+    print("=" * 50)
+    
     for epoch in range(500):
-        # Forward pass
+        # NumPy implementation
         logits = model.forward(x)
         loss, grad = criterion(logits, target)
         
-        # Backward pass
         optimizer.zero_grad()
         model.backward(grad)
         optimizer.step()
         
+        # PyTorch implementation
+        torch_logits = torch_model(torch_x)
+        torch_loss = torch_criterion(torch_logits, torch_target)
+        
+        torch_optimizer.zero_grad()
+        torch_loss.backward()
+        torch_optimizer.step()
+        
         if (epoch + 1) % 10 == 0:
+            # NumPy results
             probs = np.exp(logits.data - np.max(logits.data, axis=1, keepdims=True))
             probs /= np.sum(probs, axis=1, keepdims=True)
+            
+            # PyTorch results
+            torch_probs = torch.softmax(torch_logits.detach(), dim=1).numpy()
+            
             print(f"Epoch {epoch + 1}")
-            print("Loss:", loss.data)
-            print("Predictions (probabilities):")
+            print("NumPy Loss:", loss.data)
+            print("PyTorch Loss:", torch_loss.item())
+            print("NumPy Predictions:")
             print(probs)
+            print("PyTorch Predictions:")
+            print(torch_probs)
             print("---")
+
+# if __name__ == "__main__":
+#     test_nn_correctness()
+
+
+def train_mnist():
+    """
+    Train a simple neural network on the MNIST dataset using our custom implementation.
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from sklearn.datasets import fetch_openml
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import StandardScaler
+    
+    # Load MNIST dataset
+    print("Loading MNIST dataset...")
+    mnist = fetch_openml('mnist_784', version=1, parser='auto')
+    X, y = mnist.data.astype('float32'), mnist.target.astype('int')
+    
+    # Normalize data
+    scaler = StandardScaler()
+    X = scaler.fit_transform(X)
+    
+    # Split data
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    # Convert to one-hot encoding
+    def to_one_hot(y, num_classes=10):
+        one_hot = np.zeros((y.shape[0], num_classes))
+        for i, label in enumerate(y):
+            one_hot[i, int(label)] = 1.0
+        return one_hot
+    
+    y_train_one_hot = to_one_hot(y_train)
+    
+    # Create model using the Model class
+    model = Model()
+    model.add(Linear(784, 128))
+    model.add(Sigmoid())
+    model.add(Linear(128, 64))
+    model.add(Sigmoid())
+    model.add(Linear(64, 10))
+    
+    criterion = SoftmaxCrossEntropyLoss()
+    optimizer = SGD(model.parameters(), lr=0.1)
+    
+    # Training loop
+    batch_size = 64
+    epochs = 100
+    n_samples = X_train.shape[0]
+    n_batches = n_samples // batch_size
+    
+    train_losses = []
+    
+    print("Starting training...")
+    for epoch in range(epochs):
+        epoch_loss = 0
+        
+        # Shuffle data
+        indices = np.random.permutation(n_samples)
+        X_shuffled = X_train[indices]
+        y_shuffled = y_train_one_hot[indices]
+        
+        for batch in range(n_batches):
+            start_idx = batch * batch_size
+            end_idx = start_idx + batch_size
+            
+            # Get batch
+            X_batch = X_shuffled[start_idx:end_idx]
+            y_batch = y_shuffled[start_idx:end_idx]
+            
+            # Convert to tensors
+            X_batch_tensor = Tensor(X_batch)
+            y_batch_tensor = Tensor(y_batch)
+            
+            # Forward pass
+            logits = model.forward(X_batch_tensor)
+            loss, grad = criterion(logits, y_batch_tensor)
+            
+            # Backward pass
+            optimizer.zero_grad()
+            model.backward(grad)
+            optimizer.step()
+            
+            epoch_loss += loss.data
+            
+        avg_loss = epoch_loss / n_batches
+        train_losses.append(avg_loss)
+        
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}")
+    
+    # Evaluate on test set
+    correct = 0
+    total = 0
+    
+    # Process in batches to avoid memory issues
+    test_batch_size = 100
+    n_test_batches = len(X_test) // test_batch_size
+    
+    for i in range(n_test_batches):
+        start_idx = i * test_batch_size
+        end_idx = start_idx + test_batch_size
+        
+        X_test_batch = X_test[start_idx:end_idx]
+        y_test_batch = y_test[start_idx:end_idx]
+        
+        # Forward pass
+        logits = model.forward(Tensor(X_test_batch))
+        
+        # Get predictions
+        predictions = np.argmax(logits.data, axis=1)
+        
+        # Update metrics
+        total += len(y_test_batch)
+        correct += np.sum(predictions == y_test_batch.astype(int))
+    
+    accuracy = correct / total
+    print(f"Test Accuracy: {accuracy:.4f}")
+    
+    # Plot loss curve
+    plt.figure(figsize=(10, 5))
+    plt.plot(train_losses)
+    plt.title('Training Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.show()
+
+if __name__ == "__main__":
+    test_nn_correctness()
+    train_mnist()
