@@ -64,6 +64,14 @@ class Sigmoid(Module):
         sigmoid_derivative = self.output.data * (1 - self.output.data)
         return Tensor(grad.data * sigmoid_derivative)
 
+class ReLU(Module):
+    def forward(self, x: Tensor) -> Tensor:
+        return Tensor(np.maximum(0, x.data))
+
+    def backward(self, grad: Tensor) -> Tensor:
+        relu_derivative = (self.input.data > 0).astype(np.float32)
+        return Tensor(grad.data * relu_derivative)
+
 class SoftmaxCrossEntropyLoss:
     def __call__(self, logits: Tensor, target: Tensor) -> Tuple[Tensor, Tensor]:
         batch_size = logits.data.shape[0]
@@ -110,6 +118,44 @@ class SGD:
         for param in self.parameters:
             param.data -= self.lr * param.grad
 
+class Adam:
+    def __init__(self, parameters: List[Tensor], lr: float = 0.001, betas: Tuple[float, float] = (0.9, 0.999), eps: float = 1e-8):
+        self.parameters = [p for p in parameters if p.requires_grad]
+        self.lr = lr
+        self.beta1, self.beta2 = betas
+        self.eps = eps
+        self.m = [np.zeros_like(param.data) for param in self.parameters]
+        self.v = [np.zeros_like(param.data) for param in self.parameters]
+        self.t = 0
+
+    def zero_grad(self):
+        for param in self.parameters:
+            if param.requires_grad:
+                param.grad = np.zeros_like(param.data)
+
+    def step(self):
+        self.t += 1
+        for i, param in enumerate(self.parameters):
+            if param.grad is None:
+                continue
+            
+            grad = np.clip(param.grad, -1, 1)  # Gradient clipping for stability
+            
+            # Update biased first moment estimate
+            self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad
+            
+            # Update biased second raw moment estimate
+            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * np.square(grad)
+            
+            # Compute bias-corrected first moment estimate
+            m_hat = self.m[i] / (1 - np.power(self.beta1, self.t))
+            
+            # Compute bias-corrected second raw moment estimate
+            v_hat = self.v[i] / (1 - np.power(self.beta2, self.t))
+            
+            # Update parameters
+            param.data -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
+
 def test_nn_correctness():
     import torch
     import torch.nn as nn
@@ -142,7 +188,6 @@ def test_nn_correctness():
                 self.layer1.bias = nn.Parameter(torch.tensor(numpy_model.modules[0].bias.data, dtype=torch.float32))
             
             self.sigmoid = nn.Sigmoid()
-            
             self.layer2 = nn.Linear(4, 3)
             with torch.no_grad():
                 self.layer2.weight = nn.Parameter(torch.tensor(numpy_model.modules[2].weight.data.T, dtype=torch.float32))
@@ -199,9 +244,7 @@ def train_mnist():
     import torch
     from torch.utils.data import DataLoader
     from torchvision import datasets, transforms
-    
-    # Load MNIST dataset using PyTorch
-    print("Loading MNIST dataset...")
+
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
@@ -214,13 +257,16 @@ def train_mnist():
     
     model = Model()
     model.add(Linear(784, 128))
-    model.add(Sigmoid())
+    model.add(ReLU())
+    # model.add(Sigmoid())
     model.add(Linear(128, 64))
-    model.add(Sigmoid())
+    model.add(ReLU())
+    # model.add(Sigmoid())
     model.add(Linear(64, 10))
     
     criterion = SoftmaxCrossEntropyLoss()
-    optimizer = SGD(model.parameters(), lr=0.1)
+    optimizer = Adam(model.parameters(), lr=0.001)
+    # optimizer = SGD(model.parameters(), lr=0.001)
     
     epochs = 10
     print("Starting training...")
@@ -229,14 +275,11 @@ def train_mnist():
         batch_count = 0
         
         for batch_idx, (data, target) in enumerate(train_loader):
-            X_batch = data.view(-1, 784).numpy()
-            y_batch = torch.zeros(target.shape[0], 10).scatter_(1, target.unsqueeze(1), 1).numpy()
+            X = Tensor(data.view(-1, 784).numpy())
+            y = Tensor(torch.zeros(target.shape[0], 10).scatter_(1, target.unsqueeze(1), 1).numpy())
             
-            X_batch_tensor = Tensor(X_batch)
-            y_batch_tensor = Tensor(y_batch)
-            
-            logits = model.forward(X_batch_tensor)
-            loss, grad = criterion(logits, y_batch_tensor)
+            logits = model.forward(X)
+            loss, grad = criterion(logits, y)
             
             optimizer.zero_grad()
             model.backward(grad)
@@ -245,15 +288,17 @@ def train_mnist():
             epoch_loss += loss.data
             batch_count += 1
             
+            
         avg_loss = epoch_loss / batch_count
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}")
+        print(f"Epoch {epoch+1}/{epochs}, Average Loss: {avg_loss:.4f}")
     
     correct = 0
     total = 0
     
+    print("Evaluating model...")
     for data, target in test_loader:
-        X_test_batch = data.view(-1, 784).numpy()
-        logits = model.forward(Tensor(X_test_batch))
+        X = Tensor(data.view(-1, 784).numpy())
+        logits = model.forward(X)
         predictions = np.argmax(logits.data, axis=1)
         
         total += len(target)
