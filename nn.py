@@ -1,8 +1,6 @@
 import numpy as np
 from typing import List, Tuple, Union, Optional
 
-np.random.seed(42)
-
 class Tensor:
     def __init__(self, data: np.ndarray, requires_grad: bool = False):
         self.data = data
@@ -40,21 +38,13 @@ class Module:
         return self.output
 
 class Linear(Module):
-    def __init__(self, in_features: int, out_features: int, init_weight=None, init_bias=None):
+    def __init__(self, in_features: int, out_features: int):
         super().__init__()
-        if init_weight is not None:
-            self.weight = Tensor(init_weight, requires_grad=True)
-        else:
-            self.weight = Tensor(
-                np.random.randn(in_features, out_features) * np.sqrt(2.0 / in_features),
-                requires_grad=True
-            )
-            
-        if init_bias is not None:
-            self.bias = Tensor(init_bias, requires_grad=True)
-        else:
-            self.bias = Tensor(np.zeros(out_features), requires_grad=True)
-            
+        self.weight = Tensor(
+            np.random.randn(in_features, out_features) * np.sqrt(2.0 / in_features),
+            requires_grad=True
+        )
+        self.bias = Tensor(np.zeros(out_features), requires_grad=True)
         self._parameters = [self.weight, self.bias]
 
     def forward(self, x: Tensor) -> Tensor:
@@ -99,19 +89,17 @@ class Model:
         return params
 
     def forward(self, x: Tensor) -> Tensor:
-        current = x
         for module in self.modules:
-            current = module(current)
-        return current
+            x = module(x)
+        return x
 
     def backward(self, grad: Tensor):
-        current_grad = grad
         for module in reversed(self.modules):
-            current_grad = module.backward(current_grad)
+            grad = module.backward(grad)
 
 class SGD:
     def __init__(self, parameters: List[Tensor], lr: float = 0.01):
-        self.parameters = parameters
+        self.parameters = [p for p in parameters if p.requires_grad]
         self.lr = lr
 
     def zero_grad(self):
@@ -120,33 +108,17 @@ class SGD:
 
     def step(self):
         for param in self.parameters:
-            if param.grad is None:
-                continue
             param.data -= self.lr * param.grad
 
 if __name__ == "__main__":
-    layer1_weight = np.array([
-        [ 0.5773503,  0.5773503, -0.5773503,  0.5773503],
-        [-0.5773503,  0.5773503,  0.5773503,  0.5773503]
-    ])
-    layer1_bias = np.array([0., 0., 0., 0.])
-    layer2_weight = np.array([
-        [ 0.5,  0.5,  0.5],
-        [-0.5,  0.5,  0.5],
-        [ 0.5, -0.5,  0.5],
-        [-0.5, -0.5,  0.5]
-    ])
-    layer2_bias = np.array([0., 0., 0.])
+    np.random.seed(42)
 
     model = Model()
-    linear1 = Linear(2, 4, init_weight=layer1_weight, init_bias=layer1_bias)
-    sigmoid1 = Sigmoid()
-    linear2 = Linear(4, 3, init_weight=layer2_weight, init_bias=layer2_bias)
-    model.add(linear1)
-    model.add(sigmoid1)
-    model.add(linear2)
+    model.add(Linear(2, 4))
+    model.add(Sigmoid())
+    model.add(Linear(4, 3))
     
-    optimizer = SGD(model.parameters(), lr=0.1)
+    optimizer = SGD(model.parameters(), lr=1)
     criterion = SoftmaxCrossEntropyLoss()
     
     x = Tensor(np.array([[1.0, 2.0], [0.5, 1.5], [2.0, 1.0]]), requires_grad=True)
@@ -156,16 +128,19 @@ if __name__ == "__main__":
         [0.0, 0.0, 1.0]
     ]))
     
-    for epoch in range(5000):
+    for epoch in range(500):
+        # Forward pass
         logits = model.forward(x)
         loss, grad = criterion(logits, target)
+        
+        # Backward pass
         optimizer.zero_grad()
         model.backward(grad)
         optimizer.step()
         
         if (epoch + 1) % 10 == 0:
-            exp_logits = np.exp(logits.data - np.max(logits.data, axis=1, keepdims=True))
-            probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
+            probs = np.exp(logits.data - np.max(logits.data, axis=1, keepdims=True))
+            probs /= np.sum(probs, axis=1, keepdims=True)
             print(f"Epoch {epoch + 1}")
             print("Loss:", loss.data)
             print("Predictions (probabilities):")
