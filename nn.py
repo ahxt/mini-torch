@@ -118,7 +118,6 @@ def test_nn_correctness():
     # np.random.seed(42)
     # torch.manual_seed(42)
 
-    # Custom numpy implementation
     model = Model()
     model.add(Linear(2, 4))
     model.add(Sigmoid())
@@ -138,7 +137,6 @@ def test_nn_correctness():
     class PyTorchModel(nn.Module):
         def __init__(self, numpy_model):
             super().__init__()
-            # Copy weights from numpy model
             self.layer1 = nn.Linear(2, 4)
             with torch.no_grad():
                 self.layer1.weight = nn.Parameter(torch.tensor(numpy_model.modules[0].weight.data.T, dtype=torch.float32))
@@ -156,13 +154,11 @@ def test_nn_correctness():
             x = self.sigmoid(x)
             x = self.layer2(x)
             return x
-    
-    # Create PyTorch model with same weights
+        
     torch_model = PyTorchModel(model)
     torch_optimizer = optim.SGD(torch_model.parameters(), lr=1)
     torch_criterion = nn.CrossEntropyLoss()
     
-    # Convert data to PyTorch tensors
     torch_x = torch.tensor(x.data, dtype=torch.float32)
     torch_target = torch.tensor(np.argmax(target.data, axis=1), dtype=torch.long)
     
@@ -173,7 +169,6 @@ def test_nn_correctness():
         # NumPy implementation
         logits = model.forward(x)
         loss, grad = criterion(logits, target)
-        
         optimizer.zero_grad()
         model.backward(grad)
         optimizer.step()
@@ -181,17 +176,13 @@ def test_nn_correctness():
         # PyTorch implementation
         torch_logits = torch_model(torch_x)
         torch_loss = torch_criterion(torch_logits, torch_target)
-        
         torch_optimizer.zero_grad()
         torch_loss.backward()
         torch_optimizer.step()
         
         if (epoch + 1) % 10 == 0:
-            # NumPy results
             probs = np.exp(logits.data - np.max(logits.data, axis=1, keepdims=True))
             probs /= np.sum(probs, axis=1, keepdims=True)
-            
-            # PyTorch results
             torch_probs = torch.softmax(torch_logits.detach(), dim=1).numpy()
             
             print(f"Epoch {epoch + 1}")
@@ -203,42 +194,24 @@ def test_nn_correctness():
             print(torch_probs)
             print("---")
 
-# if __name__ == "__main__":
-#     test_nn_correctness()
-
 
 def train_mnist():
-    """
-    Train a simple neural network on the MNIST dataset using our custom implementation.
-    """
     import numpy as np
-    import matplotlib.pyplot as plt
-    from sklearn.datasets import fetch_openml
-    from sklearn.model_selection import train_test_split
-    from sklearn.preprocessing import StandardScaler
+    import torch
+    from torch.utils.data import DataLoader
+    from torchvision import datasets, transforms
     
-    # Load MNIST dataset
+    # Load MNIST dataset using PyTorch
     print("Loading MNIST dataset...")
-    mnist = fetch_openml('mnist_784', version=1, parser='auto')
-    X, y = mnist.data.astype('float32'), mnist.target.astype('int')
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))  # MNIST mean and std
+    ])
+    train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
+    test_dataset = datasets.MNIST('./data', train=False, transform=transform)
+    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False)
     
-    # Normalize data
-    scaler = StandardScaler()
-    X = scaler.fit_transform(X)
-    
-    # Split data
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    # Convert to one-hot encoding
-    def to_one_hot(y, num_classes=10):
-        one_hot = np.zeros((y.shape[0], num_classes))
-        for i, label in enumerate(y):
-            one_hot[i, int(label)] = 1.0
-        return one_hot
-    
-    y_train_one_hot = to_one_hot(y_train)
-    
-    # Create model using the Model class
     model = Model()
     model.add(Linear(784, 128))
     model.add(Sigmoid())
@@ -249,86 +222,48 @@ def train_mnist():
     criterion = SoftmaxCrossEntropyLoss()
     optimizer = SGD(model.parameters(), lr=0.1)
     
-    # Training loop
-    batch_size = 64
-    epochs = 100
-    n_samples = X_train.shape[0]
-    n_batches = n_samples // batch_size
-    
-    train_losses = []
+
+    epochs = 10
     
     print("Starting training...")
     for epoch in range(epochs):
         epoch_loss = 0
+        batch_count = 0
         
-        # Shuffle data
-        indices = np.random.permutation(n_samples)
-        X_shuffled = X_train[indices]
-        y_shuffled = y_train_one_hot[indices]
-        
-        for batch in range(n_batches):
-            start_idx = batch * batch_size
-            end_idx = start_idx + batch_size
+        for batch_idx, (data, target) in enumerate(train_loader):
+            X_batch = data.view(-1, 784).numpy()
+            y_batch = torch.zeros(target.shape[0], 10).scatter_(1, target.unsqueeze(1), 1).numpy()
             
-            # Get batch
-            X_batch = X_shuffled[start_idx:end_idx]
-            y_batch = y_shuffled[start_idx:end_idx]
-            
-            # Convert to tensors
             X_batch_tensor = Tensor(X_batch)
             y_batch_tensor = Tensor(y_batch)
             
-            # Forward pass
             logits = model.forward(X_batch_tensor)
             loss, grad = criterion(logits, y_batch_tensor)
             
-            # Backward pass
             optimizer.zero_grad()
             model.backward(grad)
             optimizer.step()
             
             epoch_loss += loss.data
+            batch_count += 1
             
-        avg_loss = epoch_loss / n_batches
-        train_losses.append(avg_loss)
-        
+        avg_loss = epoch_loss / batch_count
         print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}")
     
-    # Evaluate on test set
     correct = 0
     total = 0
     
-    # Process in batches to avoid memory issues
-    test_batch_size = 100
-    n_test_batches = len(X_test) // test_batch_size
-    
-    for i in range(n_test_batches):
-        start_idx = i * test_batch_size
-        end_idx = start_idx + test_batch_size
-        
-        X_test_batch = X_test[start_idx:end_idx]
-        y_test_batch = y_test[start_idx:end_idx]
-        
-        # Forward pass
+    for data, target in test_loader:
+        X_test_batch = data.view(-1, 784).numpy()
         logits = model.forward(Tensor(X_test_batch))
-        
-        # Get predictions
         predictions = np.argmax(logits.data, axis=1)
-        
-        # Update metrics
-        total += len(y_test_batch)
-        correct += np.sum(predictions == y_test_batch.astype(int))
+    
+        total += len(target)
+        correct += np.sum(predictions == target.numpy())
     
     accuracy = correct / total
     print(f"Test Accuracy: {accuracy:.4f}")
     
-    # Plot loss curve
-    plt.figure(figsize=(10, 5))
-    plt.plot(train_losses)
-    plt.title('Training Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.show()
 
 if __name__ == "__main__":
     test_nn_correctness()
