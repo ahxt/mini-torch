@@ -136,24 +136,10 @@ class Adam:
     def step(self):
         self.t += 1
         for i, param in enumerate(self.parameters):
-            if param.grad is None:
-                continue
-            
-            grad = np.clip(param.grad, -1, 1)  # Gradient clipping for stability
-            
-            # Update biased first moment estimate
-            self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad
-            
-            # Update biased second raw moment estimate
-            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * np.square(grad)
-            
-            # Compute bias-corrected first moment estimate
+            self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * param.grad
+            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * np.square(param.grad)
             m_hat = self.m[i] / (1 - np.power(self.beta1, self.t))
-            
-            # Compute bias-corrected second raw moment estimate
             v_hat = self.v[i] / (1 - np.power(self.beta2, self.t))
-            
-            # Update parameters
             param.data -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
 
 def test_nn_correctness():
@@ -290,7 +276,7 @@ def train_mnist():
             
             
         avg_loss = epoch_loss / batch_count
-        print(f"Epoch {epoch+1}/{epochs}, Average Loss: {avg_loss:.4f}")
+        print(f"Epoch {epoch+1}/{epochs}, Training Loss: {avg_loss:.4f}")
     
     correct = 0
     total = 0
@@ -308,5 +294,5 @@ def train_mnist():
     print(f"Test Accuracy: {accuracy:.4f}")
 
 if __name__ == "__main__":
-    test_nn_correctness()
+    # test_nn_correctness()
     train_mnist()
