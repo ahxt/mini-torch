@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple
 
 class Tensor:
     def __init__(self, data: np.ndarray, requires_grad: bool = False):
@@ -133,7 +133,6 @@ def test_nn_correctness():
         [0.0, 0.0, 1.0]
     ]))
     
-    # PyTorch implementation with same weights
     class PyTorchModel(nn.Module):
         def __init__(self, numpy_model):
             super().__init__()
@@ -154,7 +153,7 @@ def test_nn_correctness():
             x = self.sigmoid(x)
             x = self.layer2(x)
             return x
-        
+    
     torch_model = PyTorchModel(model)
     torch_optimizer = optim.SGD(torch_model.parameters(), lr=1)
     torch_criterion = nn.CrossEntropyLoss()
@@ -205,8 +204,9 @@ def train_mnist():
     print("Loading MNIST dataset...")
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,))  # MNIST mean and std
+        transforms.Normalize((0.1307,), (0.3081,))
     ])
+    
     train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
     test_dataset = datasets.MNIST('./data', train=False, transform=transform)
     train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
@@ -222,9 +222,7 @@ def train_mnist():
     criterion = SoftmaxCrossEntropyLoss()
     optimizer = SGD(model.parameters(), lr=0.1)
     
-
     epochs = 10
-    
     print("Starting training...")
     for epoch in range(epochs):
         epoch_loss = 0
@@ -257,13 +255,12 @@ def train_mnist():
         X_test_batch = data.view(-1, 784).numpy()
         logits = model.forward(Tensor(X_test_batch))
         predictions = np.argmax(logits.data, axis=1)
-    
+        
         total += len(target)
         correct += np.sum(predictions == target.numpy())
     
     accuracy = correct / total
     print(f"Test Accuracy: {accuracy:.4f}")
-    
 
 if __name__ == "__main__":
     test_nn_correctness()
