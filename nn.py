@@ -5,7 +5,7 @@ class Tensor:
     def __init__(self, data: np.ndarray, requires_grad: bool = False):
         self.data = data
         self.requires_grad = requires_grad
-        self.grad = None if requires_grad else None
+        self.grad = None
 
     def __add__(self, other):
         return Tensor(self.data + other.data)
@@ -58,19 +58,23 @@ class Linear(Module):
 
 class Sigmoid(Module):
     def forward(self, x: Tensor) -> Tensor:
-        return Tensor(1 / (1 + np.exp(-x.data)))
+        x = 1 / (1 + np.exp(-x.data))
+        return Tensor(x)
 
     def backward(self, grad: Tensor) -> Tensor:
         sigmoid_derivative = self.output.data * (1 - self.output.data)
-        return Tensor(grad.data * sigmoid_derivative)
+        input_grad = grad.data * sigmoid_derivative
+        return Tensor(input_grad)
 
 class ReLU(Module):
     def forward(self, x: Tensor) -> Tensor:
-        return Tensor(np.maximum(0, x.data))
+        x = np.maximum(0, x.data)
+        return Tensor(x)
 
     def backward(self, grad: Tensor) -> Tensor:
         relu_derivative = (self.input.data > 0).astype(np.float32)
-        return Tensor(grad.data * relu_derivative)
+        input_grad = grad.data * relu_derivative
+        return Tensor(input_grad)
 
 class SoftmaxCrossEntropyLoss:
     def __call__(self, logits: Tensor, target: Tensor) -> Tuple[Tensor, Tensor]:
@@ -78,7 +82,6 @@ class SoftmaxCrossEntropyLoss:
         exp_logits = np.exp(logits.data - np.max(logits.data, axis=1, keepdims=True))
         softmax_pred = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
         loss = -np.sum(target.data * np.log(softmax_pred + 1e-7)) / batch_size
-
         grad = (softmax_pred - target.data) / batch_size
         return Tensor(loss), Tensor(grad)
 
@@ -137,9 +140,9 @@ class Adam:
         self.t += 1
         for i, param in enumerate(self.parameters):
             self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * param.grad
-            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * np.square(param.grad)
-            m_hat = self.m[i] / (1 - np.power(self.beta1, self.t))
-            v_hat = self.v[i] / (1 - np.power(self.beta2, self.t))
+            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * (param.grad ** 2)
+            m_hat = self.m[i] / (1 - self.beta1 ** self.t)
+            v_hat = self.v[i] / (1 - self.beta2 ** self.t)
             param.data -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
 
 def test_nn_correctness():
