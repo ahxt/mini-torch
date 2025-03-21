@@ -115,7 +115,7 @@ class SGD:
 
     def zero_grad(self):
         for param in self.parameters:
-            param.zero_grad()
+            param.grad = np.zeros_like(param.data)
 
     def step(self):
         for param in self.parameters:
@@ -242,7 +242,7 @@ def train_mnist():
     train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
     test_dataset = datasets.MNIST('./data', train=False, transform=transform)
     train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
     
     model = Model()
     model.add(Linear(784, 128))
